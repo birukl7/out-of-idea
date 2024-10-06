@@ -3,15 +3,18 @@
 use Livewire\Volt\Component;
 
 new class extends Component {
-    public $width = 20;
+    public $width = 25;
     public $currentStep = 1; // Track the current step
     public $userInput = ''; // User input for step 1
     public $aiResponses = []; // Store AI responses for steps 2 and 3
     public $selectedResponses = []; // Store user selections from AI responses
-    public $choice1;
-    public $choice2;
-    public $choice3;
+    public $choice1 = 'yes';
+    public $choice2 = 'yes';
+    public $choice3 = 'yes';
     public $stepOneError=false;
+    public $stepTwoError=false;
+    public $responseOneNull=false;
+    public $responseTwoNull=false;
 
     protected $client;
 
@@ -28,27 +31,35 @@ new class extends Component {
         // Create a prompt for the AI to provide actionable tasks related to the user input
         $prompt = "Based on the following user input, provide three simple and actionable questions that guide the user. 
         The answer should be realistic and limited to 3 options per question and in array format like this ['<your answer>','<your answer>','<your answer>']. Make the questions suitable for yes or no. Avoid what question instead prefer do questions.
-        Avoid unnecessary explanations. Avoids numbers infront of the array strings. Avoid question marks at the end of each array strings. Ensure you closed the bracket '[' you open.  Ensure you always use the array string in your response.  Here is the user input: ".$this->userInput;
+        Avoid unnecessary explanations. Avoids numbers infront of the array strings. Avoid question marks at the end of each array strings. Ensure you closed the bracket '[' you open.  Ensure you always use the array string in your response. Feel free to be informal.  Here is the user input: ".$this->userInput;
         
         
         try {
             $response = $this->client->geminiPro()->generateContent($prompt);
-    
-            // Check if the response contains 'candidates'
-            if (isset($response->candidates[0])) {
-                $validJsonString = str_replace("'", '"', $response->candidates[0]->content->parts[0]->text);
-    
-                // Attempt to decode the JSON string
-                $this->aiResponses = json_decode($validJsonString, true);
-    
-                // Check for inappropriate content response
-                if (isset($this->aiResponses[0]) && $this->aiResponses[0] === 'inappropriate') {
-                    $this->aiResponses = ['This topic is inappropriate. Please provide a different input.'];
+        
+            // Check if the response contains 'candidates' and if 'candidates' is not null
+            if (isset($response->candidates[0]) && $response->candidates[0] !== null) {
+                
+                // Get the AI response content
+                $responseText = $response->candidates[0]->content->parts[0]->text ?? null;
+                
+                if ($responseText !== null) {
+                    // Convert single quotes to double quotes to ensure valid JSON
+                    $validJsonString = str_replace("'", '"', $responseText);
+        
+                    // Attempt to decode the JSON string
+                    $this->aiResponses = json_decode($validJsonString, true);
+        
+                } else {
+                    // Handle the case where response text is null
+                    $this->aiResponses = ['Something is wrong. Please try again.'];
+                    $this->responseOneNull = true;
                 }
             } else {
-                // Handle cases where candidates are not present
-                $this->aiResponses = ['No valid response from AI. Please try again.'];
+                // Handle cases where 'candidates' are not present or are null
+                $this->aiResponses = ['No valid response. Please try again.'];
             }
+        
         } catch (\Exception $e) {
             // Log the exception and set a user-friendly error message
             \Log::error('Gemini API error: ' . $e->getMessage());
@@ -56,7 +67,7 @@ new class extends Component {
             $this->stepOneError = true;
         }
 
-        $this->width += 20;
+        $this->width = 50;
         $this->currentStep = 2; // Move to step 2
     }
     
@@ -67,26 +78,67 @@ new class extends Component {
         if (is_null($this->client)) {
             $this->client = Gemini::client(env('GEMINI_KEY'));
         }
-        $propmt = '';
+        $prompt = '';
 
-        if ($this->choice1){
-            $propmt += ' A user says yes to this question: '.$this->aiResponses[0];
+        if ($this->choice1 == 'yes'){
+            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[0];
+        } elseif($this->choice1 == 'no'){
+            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[0];
         }
 
-        if ($this->choice2){
-            $propmt += ' A user says yes to this question: '.$this->aiResponses[0];
+        if ($this->choice2 == 'yes'){
+            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[1];
+        } elseif($this->choice2 == 'no'){
+            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[1];
         }
 
-        if ($this->choice3){
-            $propmt += ' A user says yes to this question: '.$this->aiResponses[0];
+        if ($this->choice3 == 'yes'){
+            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[2];
+        } elseif($this->choice3 == 'no'){
+            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[2];
         }
 
-        dd($this->choice1, $this->choice2, $this->choice3);
+        // dd($this->choice1, $this->choice2, $this->choice3);
 
-        $propmt += 'Based on these user answers';
+        $prompt = $prompt. " Based on the following user answers, provide five simple to do things according to the user's input that guide the user. 
+        The answer should be realistic and limited to five options per question and in array format like this ['<your answer>','<your answer>','<your answer>'].
+        Avoid unnecessary explanations. Avoids numbers infront of the array strings. Avoid question marks at the end of each array strings. Ensure you closed the bracket '[' you open.  Ensure you always use the array string in your response. Answer a bit informal reponses but keep the format" ;
 
+        try {
+            $response = $this->client->geminiPro()->generateContent($prompt);
+        
+            // Check if the response contains 'candidates' and if 'candidates' is not null
+            if (isset($response->candidates[0]) && $response->candidates[0] !== null) {
+                
+                // Get the AI response content
+                $responseText = $response->candidates[0]->content->parts[0]->text ?? null;
+                
+                if ($responseText !== null) {
+                    // Convert single quotes to double quotes to ensure valid JSON
+                    $validJsonString = str_replace("'", '"', $responseText);
+        
+                    // Attempt to decode the JSON string
+                    $this->aiResponses = json_decode($validJsonString, true);
+        
+                } else {
+                    // Handle the case where response text is null
+                    $this->aiResponses = ['Something is wrong. Please try again.'];
+                    $this->responseTwoNull = true;
+                }
+            } else {
+                // Handle cases where 'candidates' are not present or are null
+                $this->aiResponses = ['No valid response. Please try again.'];
+            }
+        
+        } catch (\Exception $e) {
+            // Log the exception and set a user-friendly error message
+            \Log::error('Gemini API error: ' . $e->getMessage());
+            $this->aiResponses = ['There was an error processing your request. Please try again later.'];
+            $this->stepTwoError = true;
+        }
 
-        $this->currentStep = 3; // Move to step 3
+        $this->width = 75;
+        $this->currentStep = 3; // Move to step 2
     }
 
     public function completeStepThree() {
@@ -126,8 +178,8 @@ new class extends Component {
             @foreach($aiResponses as $index => $response)
                 <div class="mt-4">
                     <p>{{ $response }}</p>
-                    <input type="radio"  wire:model="choice{{$index+1}}" value="yes" /> <label>Yes</label><br>
-                    <input type="radio" wire:model="choice{{$index+1}}" value="no" /> <label>No</label><br>
+                    <input type="radio"  wire:model="choice{{$index+1}}" name="reponse{{$index}}" value="yes" /> <label>Yes</label><br>
+                    <input type="radio" wire:model="choice{{$index+1}}" value="no" name="reponse{{$index}}" /> <label>No</label><br>
                 </div>
             @endforeach
             <!-- <x-primary-button wire:click="submitStepTwo" class="mt-4">
@@ -137,7 +189,7 @@ new class extends Component {
                 Next
             </x-primary-button>
         </div>
-    @else
+    @elseif(($currentStep == 2 && $stepOneError == True) || ($currentStep ==2 && $responseOneNUll) )
         <div class="mt-5">
             <div class="mt-4">
                 @foreach ($aiResponses as $response )
@@ -149,18 +201,29 @@ new class extends Component {
     @endif
 
     <!-- Step 3 -->
-    @if($currentStep == 3)
+    @if($currentStep == 3 && $stepTwoError == false)
         <div class="mt-5">
             <x-input-label>
-                Refined choices from AI
+                Actions to do
             </x-input-label>
-            @foreach($aiResponses as $response)
-                <x-text-input type="checkbox" value="{{ $response->text }}" />
-                {{ $response->text }} <br>
+            @foreach($aiResponses as $index => $response)
+                <div class="mt-5">
+                    <x-text-input type="checkbox" value="{{$response}}" />
+                    {{$response}} <br>
+                </div>
             @endforeach
             <x-primary-button wire:click="completeStepThree" class="mt-4">
-                Next
+                Finish
             </x-primary-button>
+        </div>
+    @elseif(($currentStep == 3 && $stepTwoError == True) || ($currentStep == 3 && $responseTwoNUll) )
+        <div class="mt-5">
+            <div class="mt-4">
+                @foreach ($aiResponses as $response )
+                    <p>{{$response}}</p>
+                @endforeach
+               
+            </div>
         </div>
     @endif
 
