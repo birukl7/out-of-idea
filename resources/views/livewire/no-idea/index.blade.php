@@ -1,6 +1,7 @@
 <?php
 
 use Livewire\Volt\Component;
+use App\Traits\GeminiClient;
 
 new class extends Component {
     public $width = 25;
@@ -16,7 +17,7 @@ new class extends Component {
     public $responseOneNull=false;
     public $responseTwoNull=false;
 
-    protected $client;
+    use GeminiClient;
 
     public function mount() {
         $this->client = Gemini::client(env('GEMINI_KEY'));
@@ -28,44 +29,20 @@ new class extends Component {
             $this->client = Gemini::client(env('GEMINI_KEY'));
         }
 
-        // Create a prompt for the AI to provide actionable tasks related to the user input
-        $prompt = "Based on the following user input, provide three simple and actionable questions that guide the user. 
-        The answer should be realistic and limited to 3 options per question and in array format like this ['<your answer>','<your answer>','<your answer>']. Make the questions suitable for yes or no. Avoid what question instead prefer do questions.
-        Avoid unnecessary explanations. Avoids numbers infront of the array strings. Avoid question marks at the end of each array strings. Ensure you closed the bracket '[' you open.  Ensure you always use the array string in your response. Feel free to be informal.  Here is the user input: ".$this->userInput;
-        
-        
-        try {
-            $response = $this->client->geminiPro()->generateContent($prompt);
-        
-            // Check if the response contains 'candidates' and if 'candidates' is not null
-            if (isset($response->candidates[0]) && $response->candidates[0] !== null) {
-                
-                // Get the AI response content
-                $responseText = $response->candidates[0]->content->parts[0]->text ?? null;
-                
-                if ($responseText !== null) {
-                    // Convert single quotes to double quotes to ensure valid JSON
-                    $validJsonString = str_replace("'", '"', $responseText);
-        
-                    // Attempt to decode the JSON string
-                    $this->aiResponses = json_decode($validJsonString, true);
-        
-                } else {
-                    // Handle the case where response text is null
-                    $this->aiResponses = ['Something is wrong. Please try again.'];
-                    $this->responseOneNull = true;
-                }
-            } else {
-                // Handle cases where 'candidates' are not present or are null
-                $this->aiResponses = ['No valid response. Please try again.'];
-            }
-        
-        } catch (\Exception $e) {
-            // Log the exception and set a user-friendly error message
-            \Log::error('Gemini API error: ' . $e->getMessage());
-            $this->aiResponses = ['There was an error processing your request. Please try again later.'];
+    // Create a prompt for the AI to provide actionable tasks related to the user input
+    $prompt = "Based on the following user input, provide three simple and actionable yes/no questions that guide the user. 
+    The response should be realistic and contain exactly 3 options per question in this array format: ['<answer1>', '<answer2>', '<answer3>']. 
+    Focus on 'do' questions instead of 'what' questions. Avoid adding numbers before the array strings, and do not include question marks at the end of each string. 
+    Ensure every opening bracket '[' is closed properly in the response, and always return the answer in the array format without any extra explanations. 
+    Feel free to use an informal tone in the response. Here is the user input: " . $this->userInput;
+
+
+        $this->aiResponses = $this->requestFromGemini($prompt);
+
+        if (empty($this->aiResponses) || $this->aiResponses[0] == 'Something is wrong. Please try again.' || $this->aiResponses[0] == 'There was an error processing your request. Please try again later.') {
             $this->stepOneError = true;
-        }
+            $this->responseOneNull = true;
+        } 
 
         $this->width = 50;
         $this->currentStep = 2; // Move to step 2
@@ -80,62 +57,37 @@ new class extends Component {
         }
         $prompt = '';
 
-        if ($this->choice1 == 'yes'){
-            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[0];
-        } elseif($this->choice1 == 'no'){
-            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[0];
+        if ($this->choice1 == 'yes') {
+            $prompt .= ' A user says yes to this question: ' . $this->aiResponses[0];
+        } elseif ($this->choice1 == 'no') {
+            $prompt .= ' A user says no to this question: ' . $this->aiResponses[0];
         }
-
-        if ($this->choice2 == 'yes'){
-            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[1];
-        } elseif($this->choice2 == 'no'){
-            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[1];
+        
+        if ($this->choice2 == 'yes') {
+            $prompt .= ' A user says yes to this question: ' . $this->aiResponses[1];
+        } elseif ($this->choice2 == 'no') {
+            $prompt .= ' A user says no to this question: ' . $this->aiResponses[1];
         }
-
-        if ($this->choice3 == 'yes'){
-            $prompt = $prompt. ' A user says yes to this question: '.$this->aiResponses[2];
-        } elseif($this->choice3 == 'no'){
-            $prompt = $prompt. ' A user says no to this question: '.$this->aiResponses[2];
+        
+        if ($this->choice3 == 'yes') {
+            $prompt .= ' A user says yes to this question: ' . $this->aiResponses[2];
+        } elseif ($this->choice3 == 'no') {
+            $prompt .= ' A user says no to this question: ' . $this->aiResponses[2];
         }
+        
+        $prompt .= " Based on the following user answers, provide five simple and actionable suggestions that guide the user. 
+        The answer should be limited to five options in the format ['<answer1>', '<answer2>', '<answer3>', '<answer4>', '<answer5>']. 
+        Avoid unnecessary explanations, and make sure there are no numbers in front of the array strings. 
+        Avoid question marks at the end of the array strings. 
+        Ensure that the array format is maintained and correctly closed. The tone should be a bit informal but stick to the format strictly.";
+        
 
-        // dd($this->choice1, $this->choice2, $this->choice3);
+        $this->aiResponses = $this->requestFromGemini($prompt);
 
-        $prompt = $prompt. " Based on the following user answers, provide five simple to do things according to the user's input that guide the user. 
-        The answer should be realistic and limited to five options per question and in array format like this ['<your answer>','<your answer>','<your answer>'].
-        Avoid unnecessary explanations. Avoids numbers infront of the array strings. Avoid question marks at the end of each array strings. Ensure you closed the bracket '[' you open.  Ensure you always use the array string in your response. Answer a bit informal reponses but keep the format" ;
-
-        try {
-            $response = $this->client->geminiPro()->generateContent($prompt);
-        
-            // Check if the response contains 'candidates' and if 'candidates' is not null
-            if (isset($response->candidates[0]) && $response->candidates[0] !== null) {
-                
-                // Get the AI response content
-                $responseText = $response->candidates[0]->content->parts[0]->text ?? null;
-                
-                if ($responseText !== null) {
-                    // Convert single quotes to double quotes to ensure valid JSON
-                    $validJsonString = str_replace("'", '"', $responseText);
-        
-                    // Attempt to decode the JSON string
-                    $this->aiResponses = json_decode($validJsonString, true);
-        
-                } else {
-                    // Handle the case where response text is null
-                    $this->aiResponses = ['Something is wrong. Please try again.'];
-                    $this->responseTwoNull = true;
-                }
-            } else {
-                // Handle cases where 'candidates' are not present or are null
-                $this->aiResponses = ['No valid response. Please try again.'];
-            }
-        
-        } catch (\Exception $e) {
-            // Log the exception and set a user-friendly error message
-            \Log::error('Gemini API error: ' . $e->getMessage());
-            $this->aiResponses = ['There was an error processing your request. Please try again later.'];
+        if (empty($this->aiResponses) || $this->aiResponses[0] == 'Something is wrong. Please try again.' || $this->aiResponses[0] == 'There was an error processing your request. Please try again later.') {
             $this->stepTwoError = true;
-        }
+            $this->responseTwoNull = true;
+        } 
 
         $this->width = 75;
         $this->currentStep = 3; // Move to step 2
